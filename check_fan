@@ -1,0 +1,157 @@
+#!/bin/sh
+#
+# Monitoring check for Antminer Fan Status
+#
+
+usage () {
+cat <<EOF
+Checks Fan RPM Status of Antminer
+Usage: $0 [-t] [-p api_port] [-f fan_number] [-h hostname] [-w warning_rpm] [-c critical_rpm]
+Command Summary:
+  -c critical_rpm	Critical treshold in RPM
+  -f fan_number		Specify Fan number (Default: all)
+  -H hostname		Antminer target
+  -h				This help text
+  -p api_port		Monitoring API Port (Default: TCP 4028)
+  -t				Reversed check logic. LOWER values than warning/critical will trigger.
+  -w warning_rpm	Warning treshold in RPM
+
+EOF
+}
+
+## default values
+API_PORT=4028
+DESCENDING_CHECK_LOGIC=true
+
+## exit statuses recognized by Nagios
+OK=0
+WARNING=1
+CRITICAL=2
+UNKNOWN=3
+
+
+## helper functions
+die () {
+  rc="$1"
+  shift
+  (echo -n "$me: ERROR: ";
+      if [ $# -gt 0 ]; then echo "$@"; else cat; fi) 1>&2
+  exit $rc
+}
+
+warn () {
+  (echo -n "$me: WARNING: ";
+      if [ $# -gt 0 ]; then echo "$@"; else cat; fi) 1>&2
+}
+
+have_command () {
+  type "$1" >/dev/null 2>/dev/null
+}
+
+require_command () {
+  if ! have_command "$1"; then
+    die 1 "Could not find required command '$1' in system PATH. Aborting."
+  fi
+}
+
+is_absolute_path () {
+    expr match "$1" '/' >/dev/null 2>/dev/null
+}
+
+## parse command-line
+while getopts ":c:f:H:hptw:" opt; do
+  case ${opt} in
+    c ) CRITICAL_RPM=$OPTARG ;;
+    f ) FAN_NUMBER=$OPTARG ;;
+    H ) HOSTN=$OPTARG ;;
+    h ) usage; exit 0 ;;
+    p ) API_PORT=$OPTARG ;;
+    t ) DESCENDING_CHECK_LOGIC=false ;;
+    w ) WARNING_RPM=$OPTARG ;;
+    \? ) usage
+      echo "Invalid option: $OPTARG" 1>&2
+      exit 0
+      ;;
+    : )	usage
+      echo "Invalid option: $OPTARG requires an argument" 1>&2
+      exit 0
+      ;;
+  esac
+done
+
+## required parameter checking
+if [ -z "${HOSTN}" ]; then
+	die 1 "hostname not set. Type '$me -h' to get usage information."
+fi
+if [ -z "${FAN_NUMBER}" ]; then
+	die 1 "fan numbers not set. Type '$me -h' to get usage information."
+fi
+
+# check parameter types
+if ! [[ "$WARNING_RPM" =~ ^[0-9]+$ ]]; then
+	die 1 "WARNING_RPM is not a number: ${WARNING_RPM}"
+fi
+
+if ! [[ "$CRITICAL_RPM" =~ ^[0-9]+$ ]]; then
+	die 1 "CRITICAL_RPM is not a number: ${CRITICAL_RPM}"
+fi
+
+if ! [[ "$FAN_NUMBER" =~ ^[0-9]+$ ]]; then
+	die 1 "FAN_RPM is not a number: ${FAN_NUMBER}"
+fi
+
+# check if given thresholds makes sense
+if [ "$DESCENDING_CHECK_LOGIC" = true ]; then
+	if [ "$WARNING_RPM" -le $CRITICAL_RPM ]; then
+		die 1 "WARNING_RPM must be higher than CRITICAL_RPM"
+	fi
+else
+	if [ "$WARNING_RPM" -ge $CRITICAL_RPM ]; then
+		die 1 "WARNING_RPM must be lower than CRITICAL_RPM"
+	fi
+fi
+
+## main
+
+NETCAT="nc"
+
+# check if netcat is available
+require_command $NETCAT
+
+APISTATS=$(echo -n "stats" | ${NETCAT} $HOSTN $API_PORT | tr -d '\0')
+#read -r -d '' APISTATS < <(echo -n "stats" | nc $HOSTN $API_PORT)
+
+FAN_RPM=`echo $APISTATS | sed -e 's/,/\n/g' | grep "fan${FAN_NUMBER}=" | cut -d "=" -f2`
+
+if ! [[ "$FAN_RPM" =~ ^[0-9]+$ ]]; then
+	die 1 "FAN_RPM is not a number: ${FAN_RPM}"
+fi
+
+# check values
+if [ "$DESCENDING_CHECK_LOGIC" = true ] ; then
+	if [ "$FAN_RPM" -lt $CRITICAL_RPM ]; then
+		STATUS="CRITICAL - FAN${FAN} ${FAN_RPM} RPM (> ${CRITICAL_RPM})"
+
+	elif [ "$FAN_RPM" -lt $WARNING_RPM ]; then
+		STATUS="WARNING - FAN${FAN} ${FAN_RPM} RPM (> ${WARNING_RPM})"
+
+	else
+		STATUS="OK - FAN${FAN} ${FAN_RPM} RPM"
+	fi
+else
+	if [ "$FAN_RPM" -gt $CRITICAL_RPM ]; then
+		STATUS="CRITICAL - FAN${FAN} ${FAN_RPM} RPM (< ${CRITICAL_RPM})"
+
+	elif [ "$FAN_RPM" -gt $WARNING_RPM ]; then
+		STATUS="WARNING - FAN${FAN} ${FAN_RPM} RPM (< ${WARNING_RPM})"
+
+	else
+		STATUS="OK - FAN${FAN} ${FAN_RPM} RPM"
+	fi
+fi
+
+PERFDATA="FAN_RPM=${FAN_RPM};$WARNING;$CRITICAL;0;"
+
+echo "${STATUS} | ${PERFDATA}"
+
+exit $OK
