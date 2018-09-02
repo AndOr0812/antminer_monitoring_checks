@@ -52,7 +52,21 @@ cd ..
 #\__|_||_\___\__|_\_\_|_| \__,_|_||_|
                   #|___|             
 echo "check_fan tests.."
-FAN1_RPM=2880
+FAN_RPM=2880
+
+OVER_FAN=$((FAN_RPM++))
+UNDER_FAN=$((FAN_RPM--))
+
+OK_RANGE=$((FAN_RPM--)):$((FAN_RPM++))
+UNDER_RANGE=$((FAN_RPM-2)):$((FAN_RPM-1))
+OVER_RANGE=$((FAN_RPM+1)):$((FAN_RPM+2))
+
+echo $OVER_FAN
+echo $UNDER_FAN
+
+echo $OK_RANGE
+echo $UNDER_RANGE
+echo $OVER_RANGE
 
 ## arguments
 # no fan argument
@@ -63,54 +77,43 @@ expect_error "$OUTPUT" "Error if no fan given"
 OUTPUT=$(source check_fan -f 1 -w 20 -c 10 2>&1)
 expect_error "$OUTPUT" "Error if no hostname given"
 
-# no warning argument
-OUTPUT=$(source check_fan -H localhost -f 1 -c 10 2>&1)
-expect_error "$OUTPUT" "Error if no warning given"
-
-# no critical argument
-OUTPUT=$(source check_fan -H localhost -f 1 -w 10 2>&1)
-expect_error "$OUTPUT" "Error if no critical given"
-
-## thresholds
-# warning lower than critical
-OUTPUT=$(source check_fan -H localhost -f 1 -c 20 -w 10 2>&1)
-expect_error "$OUTPUT" "Error if warning lower than critical"
-
-# warning higher than critical
-OUTPUT=$(source check_fan -H localhost -f 1 -c 10 -w 20 2>&1)
-expect_no_error "$OUTPUT" "No error if warning higher than critical"
-
-## reverse thresholds
-# warning lower than critical
-OUTPUT=$(source check_fan -H localhost -f 1 -c 20 -w 10 -t 2>&1)
-expect_no_error "$OUTPUT" "No error if warning lower than critical"
-
-# warning higher than critical
-OUTPUT=$(source check_fan -H localhost -f 1 -c 10 -w 20 -t 2>&1)
-expect_error "$OUTPUT" "Error if warning higher than critical"
-
 ##fan speed
-# ok if rpm over threshold
-OUTPUT=$(source check_fan -H localhost -f 1 -c 10 -w 20 2>&1)
+# ok if rpm over single warning threshold
+OUTPUT=$(source check_fan -H localhost -f 1 -w $OVER_FAN  2>&1)
 expect_nagios_ok "$OUTPUT" "OK if rpm over threshold"
 
 # warning threshold undershot
-OUTPUT=$(source check_fan -H localhost -f 1 -c 0 -w 9999 2>&1)
+OUTPUT=$(source check_fan -H localhost -f 1 -w $UNDER_FAN 2>&1)
 expect_nagios_warning "$OUTPUT" "Warning if warning lower than fan rpm"
 
 # critical threshold undershot
-OUTPUT=$(source check_fan -H localhost -f 1 -c 8888 -w 9999 2>&1)
+output=$(source check_fan -h localhost -f 1 -c $UNDER_FAN 2>&1)
 expect_nagios_critical "$OUTPUT" "Critical if critical lower than fan rpm"
 
-##reverse fan speed
-# ok if rpm under threshold
-OUTPUT=$(source check_fan -H localhost -f 1 -c 9999 -w 8888 -t 2>&1)
-expect_nagios_ok "$OUTPUT" "OK if rpm under threshold"
+# critical threshold undershot and warning undershot
+output=$(source check_fan -h localhost -f 1 -c $UNDER_FAN -w $UNDER_FAN 2>&1)
+expect_nagios_critical "$OUTPUT" "Critical if critical lower than fan rpm and warning lower than fan rpm"
 
-# warning threshold exceed
-OUTPUT=$(source check_fan -H localhost -f 1 -c 9999 -w 10 -t 2>&1)
-expect_nagios_warning "$OUTPUT" "Warning if warning higher than fan rpm"
+# within warning range
+OUTPUT=$(source check_fan -H localhost -f 1 -w $RANGE_OK 2>&1)
+expect_nagios_ok "$OUTPUT" "Ok if rpm insie warning range"
 
-# critical threshold exceed
-OUTPUT=$(source check_fan -H localhost -f 1 -c 20 -w 10 -t 2>&1)
-expect_nagios_critical "$OUTPUT" "Critical if critical higher than fan rpm"
+# within critical range
+OUTPUT=$(source check_fan -H localhost -f 1 -c $RANGE_OK 2>&1)
+expect_nagios_ok "$OUTPUT" "Ok if rpm inside critical range"
+
+# within critical range and within warning range
+OUTPUT=$(source check_fan -H localhost -f 1 -w $RANGE_OK -c $RANGE_OK 2>&1)
+expect_nagios_ok "$OUTPUT" "Ok if rpm inside critical range"
+
+# under warning range
+OUTPUT=$(source check_fan -H localhost -f 1 -w $RANGE_UNDER 2>&1)
+expect_nagios_warning "$OUTPUT" "Warning if rpm under warning range"
+
+# over critical range
+OUTPUT=$(source check_fan -H localhost -f 1 -w $RANGE_OVER 2>&1)
+expect_nagios_critical "$OUTPUT" "Critical if rpm over critical range"
+
+# outside warning and critical eange
+OUTPUT=$(source check_fan -H localhost -f 1 -w $RANGE_OVER -c $RANGE_UNDER 2>&1)
+expect_nagios_critical "$OUTPUT" "Critical if rpm outside critical range and warning range"
