@@ -67,13 +67,14 @@ init_range () {
 LOWERMOST=0
 UPPERMOST=$MAX_INT
 
-
-if [ -n "${1}" ]; then
+if [[ -n "${1}" ]]; then
 	LOWERMOST=${1%:*}
 	UPPERMOST=${1#*:}
 
 	if [[ $LOWERMOST -eq $UPPERMOST ]]; then
 		UPPERMOST=$MAX_INT
+	elif [[ $LOWERMOST -gt $UPPERMOST ]]; then
+		exit 1
 	fi
 fi
 
@@ -82,6 +83,8 @@ is_number $UPPERMOST
 
 echo "${LOWERMOST}:${UPPERMOST}"
 }
+
+
 
 is_value_within_range() {
 LOWERMOST=${2%:*}
@@ -97,7 +100,7 @@ echo $RET
 }
 
 ## parse command-line
-while getopts ":cf:H:hpw" opt; do
+while getopts ":c:f:H:hpw:" opt; do
 	case ${opt} in
 		c ) CRITICAL_RPM_RANGE=$OPTARG ;;
 		f ) FAN_NUMBER=$OPTARG ;;
@@ -124,14 +127,12 @@ if [ -z "${FAN_NUMBER}" ]; then
 	die 1 "fan numbers not set. Type '$me -h' to get usage information."
 fi
 
-WARNING_RPM_RANGE=$(init_range "$WARNING_RPM_RANGE")
-CRITICAL_RPM_RANGE=$(init_range "$CRITICAL_RPM_RANGE")
+WARNING_RPM_RANGE=$(init_range "$WARNING_RPM_RANGE") || die 1 "Illegal range parameter"
+CRITICAL_RPM_RANGE=$(init_range "$CRITICAL_RPM_RANGE") || die 1 "Illegal range parameter"
 
 ## main
-
 NETCAT="nc"
 
-# check if netcat is available
 require_command $NETCAT
 
 APISTATS=$(echo -n "stats" | ${NETCAT} $HOSTN $API_PORT | tr -d '\0')
@@ -145,14 +146,13 @@ fi
 
 # check values
 
+IN_CRIT_RANGE=$(is_value_within_range "$FAN_RPM" "$CRITICAL_RPM_RANGE")
+IN_WARN_RANGE=$(is_value_within_range "$FAN_RPM" "$WARNING_RPM_RANGE")
 
-IS_CRITICAL=$(is_value_within_range "$FAN_RPM" "$CRITICAL_RPM_RANGE")
-IS_WARNING=$(is_value_within_range "$FAN_RPM" "$WARNING_RPM_RANGE")
-
-if [ "$IS_CRITICAL" = true ]; then
-	STATUS="CRITICAL - FAN${FAN} ${FAN_RPM} RPM"
-elif [ "$IS_WARNING" = true ]; then
-	STATUS="WARNING - FAN${FAN} ${FAN_RPM} RPM"
+if [ "$IN_CRIT_RANGE" = false ]; then
+	STATUS="CRITICAL - FAN${FAN} ${FAN_RPM} RPM (not in range ${CRITICAL_RPM_RANGE}"
+elif [ "$IN_WARN_RANGE" = false ]; then
+	STATUS="WARNING - FAN${FAN} ${FAN_RPM} RPM (not in range ${WARNING_RPM_RANGE}"
 else
 	STATUS="OK - FAN${FAN} ${FAN_RPM} RPM"
 fi
