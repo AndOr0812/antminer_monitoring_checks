@@ -57,47 +57,145 @@ is_absolute_path () {
     expr match "$1" '/' >/dev/null 2>/dev/null
 }
 
+#
+# check_range takes a value and a range string, returning successfully if an
+# alert should be raised based on the range.  Range values are inclusive.
+# Values may be integers or floats.
+#
+# Example usage:
+#
+# Generating an exit code of 1:
+# check_range 5 2:8
+#
+# Generating an exit code of 0:
+# check_range 1 2:8
+#
+# The function is borrowed from
+# https://github.com/nagios-plugins/nagios-plugins/blob/master/plugins-scripts/utils.sh.in
+check_range() {
+	local v range yes no err decimal start end cmp match
+	v="$1"
+	range="$2"
+
+	# whether to raise an alert or not
+	yes=0
+	no=1
+	err=2
+
+	# regex to match a decimal number
+	decimal="-?([0-9]+\.?[0-9]*|[0-9]*\.[0-9]+)"
+
+	# compare numbers (including decimals), returning true/false
+	cmp() { awk "BEGIN{ if ($1) exit(0); exit(1)}"; }
+
+	# returns successfully if the string in the first argument matches the
+	# regex in the second
+	match() { echo "$1" | grep -E -q -- "$2"; }
+
+	# make sure value is valid
+	if ! match "$v" "^$decimal$"; then
+		unset -f cmp match
+		return "$err"
+	fi
+
+	# make sure range is valid
+	if ! match "$range" "^@?(~|$decimal)(:($decimal)?)?$"; then
+		unset -f cmp match
+		return "$err"
+	fi
+
+	# check for leading @ char, which negates the range
+	if match $range '^@'; then
+		range=${range#@}
+		yes=1
+		no=0
+	fi
+
+	# parse the range string
+	if ! match "$range" ':'; then
+		start=0
+		end="$range"
+	else
+		start="${range%%:*}"
+		end="${range#*:}"
+	fi
+
+	# do the comparison, taking positive ("") and negative infinity ("~")
+	# into account
+	if [ "$start" != "~" ] && [ "$end" != "" ]; then
+		if cmp "$start <= $v" && cmp "$v <= $end"; then
+			unset -f cmp match
+			return "$no"
+		else
+			unset -f cmp match
+			return "$yes"
+		fi
+	elif [ "$start" != "~" ] && [ "$end" = "" ]; then
+		if cmp "$start <= $v"; then
+			unset -f cmp match
+			return "$no"
+		else
+			unset -f cmp match
+			return "$yes"
+		fi
+	elif [ "$start" = "~" ] && [ "$end" != "" ]; then
+		if cmp "$v <= $end"; then
+			unset -f cmp match
+			return "$no"
+		else
+			unset -f cmp match
+			return "$yes"
+		fi
+	else
+		unset -f cmp match
+		return "$no"
+	fi
+}
+
+
+
+
 is_number() {
 if ! [[ "$1" =~ ^[0-9]+$ ]]; then
 	die 1 "This is not a number: ${1}"
 fi
 }
 
-init_range () {
-LOWERMOST=0
-UPPERMOST=$MAX_INT
+#init_range () {
+#LOWERMOST=0
+#UPPERMOST=$MAX_INT
 
-if [[ -n "${1}" ]]; then
-	LOWERMOST=${1%:*}
-	UPPERMOST=${1#*:}
+#if [[ -n "${1}" ]]; then
+	#LOWERMOST=${1%:*}
+	#UPPERMOST=${1#*:}
 
-	if [[ $LOWERMOST -eq $UPPERMOST ]]; then
-		UPPERMOST=$MAX_INT
-	elif [[ $LOWERMOST -gt $UPPERMOST ]]; then
-		exit 1
-	fi
-fi
+	#if [[ $LOWERMOST -eq $UPPERMOST ]]; then
+		#UPPERMOST=$MAX_INT
+	#elif [[ $LOWERMOST -gt $UPPERMOST ]]; then
+		#exit 1
+	#fi
+#fi
 
-is_number $LOWERMOST
-is_number $UPPERMOST
+#is_number $LOWERMOST
+#is_number $UPPERMOST
 
-echo "${LOWERMOST}:${UPPERMOST}"
-}
+#echo "${LOWERMOST}:${UPPERMOST}"
+#}
 
 
 
-is_value_within_range() {
-LOWERMOST=${2%:*}
-UPPERMOST=${2#*:}
+#is_value_within_range() {
+#LOWERMOST=${2%:*}
+#UPPERMOST=${2#*:}
 
-if [ "$1" -ge "$LOWERMOST" -a "$1" -le "$UPPERMOST" ]; then
-	RET=true;
-else
-	RET=false;
-fi
+#if [ "$1" -ge "$LOWERMOST" -a "$1" -le "$UPPERMOST" ]; then
+	#RET=true;
+#else
+	#RET=false;
+#fi
 
-echo $RET
-}
+#echo $RET
+#}
 
 ## parse command-line
 while getopts ":c:f:H:hpw:" opt; do
@@ -127,8 +225,8 @@ if [ -z "${FAN_NUMBER}" ]; then
 	die 1 "fan numbers not set. Type '$me -h' to get usage information."
 fi
 
-WARNING_RPM_RANGE=$(init_range "$WARNING_RPM_RANGE") || die 1 "Illegal range parameter"
-CRITICAL_RPM_RANGE=$(init_range "$CRITICAL_RPM_RANGE") || die 1 "Illegal range parameter"
+#WARNING_RPM_RANGE=$(init_range "$WARNING_RPM_RANGE") || die 1 "Illegal range parameter"
+#CRITICAL_RPM_RANGE=$(init_range "$CRITICAL_RPM_RANGE") || die 1 "Illegal range parameter"
 
 ## main
 NETCAT="nc"
@@ -144,20 +242,33 @@ if ! [[ "$FAN_RPM" =~ ^[0-9]+$ ]]; then
 	die 1 "FAN_RPM is not a number: ${FAN_RPM}"
 fi
 
-# check values
 
-IN_CRIT_RANGE=$(is_value_within_range "$FAN_RPM" "$CRITICAL_RPM_RANGE")
-IN_WARN_RANGE=$(is_value_within_range "$FAN_RPM" "$WARNING_RPM_RANGE")
+STATUS="OK - FAN${FAN_NUMBER} ${FAN_RPM} RPM"
 
-if [ "$IN_CRIT_RANGE" = false ]; then
-	STATUS="CRITICAL - FAN${FAN} ${FAN_RPM} RPM (not in range ${CRITICAL_RPM_RANGE}"
-elif [ "$IN_WARN_RANGE" = false ]; then
-	STATUS="WARNING - FAN${FAN} ${FAN_RPM} RPM (not in range ${WARNING_RPM_RANGE}"
-else
-	STATUS="OK - FAN${FAN} ${FAN_RPM} RPM"
+# check WARNING range
+if [[ -n $WARNING_RPM_RANGE ]]; then
+	check_range "$FAN_RPM" "$WARNING_RPM_RANGE"
+	RET=$?
+	if [[ "$RET" -eq 2 ]]; then
+		die 1 "Invalid warning range: ${WARNING_RPM_RANGE}"
+	elif [[ "$RET" -eq 0 ]]; then
+		STATUS="WARNING - FAN${FAN_NUMBER} ${FAN_RPM} RPM (range does not match: ${WARNING_RPM_RANGE})"
+	fi
 fi
 
-PERFDATA="FAN_RPM=${FAN_RPM};$WARNING;$CRITICAL;0;"
+# check CRITICAL range
+check_range "$FAN_RPM" "$CRITICAL_RPM_RANGE"
+RET=$?
+
+if [[ -n $CRITICAL_RPM_RANGE ]]; then
+	if [[ "$RET" -eq 2 ]]; then
+		die 1 "Invalid critical range: ${CRITICAL_RPM_RANGE}"
+	elif [[ "$RET" -eq 0 ]]; then
+		STATUS="CRITICAL - FAN${FAN_NUMBER} ${FAN_RPM} RPM (range does not match: ${CRITICAL_RPM_RANGE})"
+	fi
+fi
+
+PERFDATA="FAN_RPM=${FAN_RPM};$WARNING_RPM_RANGE;$CRITICAL_RPM_RANGE"
 
 echo "${STATUS} | ${PERFDATA}"
 
