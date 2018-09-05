@@ -5,22 +5,22 @@
 
 usage () {
 cat <<EOF
-Checks Fan RPM Status of Antminer
-Usage: $0 [-t] [-p api_port] [-f fan_number] [-h hostname] [-w warning_rpm] [-c critical_rpm]
+Check for Fan RPM Status of Antminer
+Warning and Critical are in Nagios Threshold Format. (10, 10:, 10:20, ~:20, @10:20 etc.)
+Usage: $0 [-t] [-p api_port] [-f fan_number] [-h hostname] [-w warning_rpm_range] [-c critical_rpm_range]
 Command Summary:
-  -c low[:high]		Critical treshold (range) in RPM
-  -f fan_number		Specify Fan number (Default: all)
-  -H hostname		Antminer target
+  -c critical_threshold		Critical treshold (range) in RPM
+  -f fan_number			Specify Fan number
+  -H hostname			Antminer target
   -h				This help text
-  -p api_port		Monitoring API Port (Default: TCP 4028)
-  -w low[:high]		Warning threshold (range) in RPM
+  -p api_port			Monitoring API Port (Default: 4028)
+  -w warning_threshold		Warning threshold (range) in RPM
 
 EOF
 }
 
 ## default values
 API_PORT=4028
-MAX_INT=9223372036854775807
 
 ## exit statuses recognized by Nagios
 OK=0
@@ -38,11 +38,6 @@ die () {
   exit $rc
 }
 
-warn () {
-  (echo -n "$me: WARNING: ";
-      if [ $# -gt 0 ]; then echo "$@"; else cat; fi) 1>&2
-}
-
 have_command () {
   type "$1" >/dev/null 2>/dev/null
 }
@@ -51,10 +46,6 @@ require_command () {
   if ! have_command "$1"; then
     die 1 "Could not find required command '$1' in system PATH. Aborting."
   fi
-}
-
-is_absolute_path () {
-    expr match "$1" '/' >/dev/null 2>/dev/null
 }
 
 #
@@ -161,42 +152,6 @@ if ! [[ "$1" =~ ^[0-9]+$ ]]; then
 fi
 }
 
-#init_range () {
-#LOWERMOST=0
-#UPPERMOST=$MAX_INT
-
-#if [[ -n "${1}" ]]; then
-	#LOWERMOST=${1%:*}
-	#UPPERMOST=${1#*:}
-
-	#if [[ $LOWERMOST -eq $UPPERMOST ]]; then
-		#UPPERMOST=$MAX_INT
-	#elif [[ $LOWERMOST -gt $UPPERMOST ]]; then
-		#exit 1
-	#fi
-#fi
-
-#is_number $LOWERMOST
-#is_number $UPPERMOST
-
-#echo "${LOWERMOST}:${UPPERMOST}"
-#}
-
-
-
-#is_value_within_range() {
-#LOWERMOST=${2%:*}
-#UPPERMOST=${2#*:}
-
-#if [ "$1" -ge "$LOWERMOST" -a "$1" -le "$UPPERMOST" ]; then
-	#RET=true;
-#else
-	#RET=false;
-#fi
-
-#echo $RET
-#}
-
 ## parse command-line
 while getopts ":c:f:H:hpw:" opt; do
 	case ${opt} in
@@ -268,7 +223,7 @@ if [[ -n $CRITICAL_RPM_RANGE ]]; then
 	fi
 fi
 
-PERFDATA="FAN_RPM=${FAN_RPM};$WARNING_RPM_RANGE;$CRITICAL_RPM_RANGE"
+PERFDATA="FAN${FAN_NUMBER}_RPM=${FAN_RPM};$WARNING_RPM_RANGE;$CRITICAL_RPM_RANGE"
 
 echo "${STATUS} | ${PERFDATA}"
 
