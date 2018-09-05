@@ -180,9 +180,6 @@ if [ -z "${FAN_NUMBER}" ]; then
 	die 1 "fan numbers not set. Type '$me -h' to get usage information."
 fi
 
-#WARNING_RPM_RANGE=$(init_range "$WARNING_RPM_RANGE") || die 1 "Illegal range parameter"
-#CRITICAL_RPM_RANGE=$(init_range "$CRITICAL_RPM_RANGE") || die 1 "Illegal range parameter"
-
 ## main
 NETCAT="nc"
 
