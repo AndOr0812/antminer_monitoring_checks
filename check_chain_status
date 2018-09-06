@@ -104,7 +104,7 @@ if [ $CHAIN_STATUS == "oooo" ];then
 	RETURN_VAL=$OK
 else
 	STATUS="CRITICAL - ${PRETEXT}"
-	RETURN_VAL=$WARNING
+	RETURN_VAL=$CRITICAL
 fi
 
 echo "${STATUS}"
