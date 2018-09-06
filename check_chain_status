@@ -1,0 +1,112 @@
+#!/bin/sh
+#
+# Monitoring check for Antminer Fan Status
+#
+
+usage () {
+cat <<EOF
+Check for Chain Status of Antminer
+Usage: $0 [-p api_port] [-n chain_number] [-H hostname]
+Command Summary:
+  -n chain_number		Specify Chain number
+  -H hostname			Antminer target
+  -h					This help text
+  -p api_port			Monitoring API Port (Default: 4028)
+
+EOF
+}
+
+## default values
+API_PORT=4028
+
+## exit statuses recognized by Nagios
+OK=0
+WARNING=1
+CRITICAL=2
+UNKNOWN=3
+
+
+## helper functions
+die () {
+  rc="$1"
+  shift
+  (echo -n "$me: ERROR: ";
+      if [ $# -gt 0 ]; then echo "$@"; else cat; fi) 1>&2
+  exit $rc
+}
+
+have_command () {
+  type "$1" >/dev/null 2>/dev/null
+}
+
+require_command () {
+  if ! have_command "$1"; then
+    die 3 "Could not find required command '$1' in system PATH. Aborting."
+  fi
+}
+
+is_number() {
+if ! [[ "$1" =~ ^[0-9]+$ ]]; then
+	die 3 "This is not a number: ${1}"
+fi
+}
+
+get_api_value() {
+	if VALUE=$(echo ${1} | sed -e 's/,/\n/g' | grep "${2}="); then
+		echo $(echo $VALUE | cut -d "=" -f2 | sed "s/^ //;s/|$//")
+		return 0
+	else
+		return 1
+	fi
+}
+
+## parse command-line
+while getopts ":n:H:hp" opt; do
+	case ${opt} in
+		n ) CHAIN_NUMBER=$OPTARG ;;
+		H ) HOSTN=$OPTARG ;;
+		h ) usage; exit 0 ;;
+		p ) API_PORT=$OPTARG ;;
+		\? ) usage
+			echo "Invalid option: $OPTARG" 1>&2
+			exit 0
+			;;
+		: )	usage
+			echo "Invalid option: $OPTARG requires an argument" 1>&2
+			exit 0
+			;;
+	esac
+done
+
+## required parameter checking
+if [ -z "${HOSTN}" ]; then
+	die 3 "hostname not set. Type '$me -h' to get usage information."
+fi
+if [ -z "${CHAIN_NUMBER}" ]; then
+	die 3 "chain number not set. Type '$me -h' to get usage information."
+fi
+
+## main
+NETCAT="nc"
+
+require_command $NETCAT
+
+APISTATS=$(echo -n "stats" | ${NETCAT} $HOSTN $API_PORT | tr -d '\0')
+
+KEY="chain_acs${CHAIN_NUMBER}"
+if ! CHAIN_STATUS=$(get_api_value "$APISTATS" "$KEY");then
+	die 3 "Value for ${KEY} does not exist in API output"
+fi
+
+PRETEXT="chain ${CHAIN_NUMBER} status: ${CHAIN_STATUS}"
+if [ $CHAIN_STATUS == "oooo" ];then
+	STATUS="OK - ${PRETEXT}"
+	RETURN_VAL=$OK
+else
+	STATUS="CRITICAL - ${PRETEXT}"
+	RETURN_VAL=$WARNING
+fi
+
+echo "${STATUS}"
+
+exit $RETURN_VAL

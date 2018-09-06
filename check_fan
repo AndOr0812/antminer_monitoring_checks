@@ -7,10 +7,10 @@ usage () {
 cat <<EOF
 Check for Fan RPM Status of Antminer
 Warning and Critical are in Nagios Threshold Format. (10, 10:, 10:20, ~:20, @10:20 etc.)
-Usage: $0 [-t] [-p api_port] [-f fan_number] [-h hostname] [-w warning_rpm_range] [-c critical_rpm_range]
+Usage: $0 [-p api_port] [-n fan_number] [-H hostname] [-w warning_rpm_range] [-c critical_rpm_range]
 Command Summary:
   -c critical_threshold		Critical treshold (range) in RPM
-  -f fan_number			Specify Fan number
+  -n fan_number			Specify Fan number
   -H hostname			Antminer target
   -h				This help text
   -p api_port			Monitoring API Port (Default: 4028)
@@ -44,7 +44,7 @@ have_command () {
 
 require_command () {
   if ! have_command "$1"; then
-    die 1 "Could not find required command '$1' in system PATH. Aborting."
+    die 3 "Could not find required command '$1' in system PATH. Aborting."
   fi
 }
 
@@ -143,20 +143,26 @@ check_range() {
 	fi
 }
 
-
-
+get_api_value() {
+	if VALUE=$(echo ${1} | sed -e 's/,/\n/g' | grep "${2}="); then
+		echo $(echo $VALUE | cut -d "=" -f2 | sed "s/^ //;s/|$//")
+		return 0
+	else
+		return 1
+	fi
+}
 
 is_number() {
 if ! [[ "$1" =~ ^[0-9]+$ ]]; then
-	die 1 "This is not a number: ${1}"
+	die 3 "This is not a number: ${1}"
 fi
 }
 
 ## parse command-line
-while getopts ":c:f:H:hpw:" opt; do
+while getopts ":c:n:H:hpw:" opt; do
 	case ${opt} in
 		c ) CRITICAL_RPM_RANGE=$OPTARG ;;
-		f ) FAN_NUMBER=$OPTARG ;;
+		n ) FAN_NUMBER=$OPTARG ;;
 		H ) HOSTN=$OPTARG ;;
 		h ) usage; exit 0 ;;
 		p ) API_PORT=$OPTARG ;;
@@ -174,10 +180,10 @@ done
 
 ## required parameter checking
 if [ -z "${HOSTN}" ]; then
-	die 1 "hostname not set. Type '$me -h' to get usage information."
+	die 3 "hostname not set. Type '$me -h' to get usage information."
 fi
 if [ -z "${FAN_NUMBER}" ]; then
-	die 1 "fan numbers not set. Type '$me -h' to get usage information."
+	die 3 "fan number not set. Type '$me -h' to get usage information."
 fi
 
 ## main
@@ -186,25 +192,29 @@ NETCAT="nc"
 require_command $NETCAT
 
 APISTATS=$(echo -n "stats" | ${NETCAT} $HOSTN $API_PORT | tr -d '\0')
-#read -r -d '' APISTATS < <(echo -n "stats" | nc $HOSTN $API_PORT)
 
-FAN_RPM=`echo $APISTATS | sed -e 's/,/\n/g' | grep "fan${FAN_NUMBER}=" | cut -d "=" -f2`
+KEY="fan${FAN_NUMBER}"
+if ! FAN_RPM=$(get_api_value "$APISTATS" "$KEY");then
+	die 3 "Value for ${KEY} does not exist in API output"
+fi
 
 if ! [[ "$FAN_RPM" =~ ^[0-9]+$ ]]; then
-	die 1 "FAN_RPM is not a number: ${FAN_RPM}"
+	die 3 "FAN_RPM is not a number: ${FAN_RPM}"
 fi
 
 
 STATUS="OK - FAN${FAN_NUMBER} ${FAN_RPM} RPM"
+RETURN_VAL=$OK
 
 # check WARNING range
 if [[ -n $WARNING_RPM_RANGE ]]; then
 	check_range "$FAN_RPM" "$WARNING_RPM_RANGE"
 	RET=$?
 	if [[ "$RET" -eq 2 ]]; then
-		die 1 "Invalid warning range: ${WARNING_RPM_RANGE}"
+		die 3 "Invalid warning range: ${WARNING_RPM_RANGE}"
 	elif [[ "$RET" -eq 0 ]]; then
 		STATUS="WARNING - FAN${FAN_NUMBER} ${FAN_RPM} RPM (range does not match: ${WARNING_RPM_RANGE})"
+		RETURN_VAL=$WARNING
 	fi
 fi
 
@@ -214,9 +224,10 @@ RET=$?
 
 if [[ -n $CRITICAL_RPM_RANGE ]]; then
 	if [[ "$RET" -eq 2 ]]; then
-		die 1 "Invalid critical range: ${CRITICAL_RPM_RANGE}"
+		die 3 "Invalid critical range: ${CRITICAL_RPM_RANGE}"
 	elif [[ "$RET" -eq 0 ]]; then
 		STATUS="CRITICAL - FAN${FAN_NUMBER} ${FAN_RPM} RPM (range does not match: ${CRITICAL_RPM_RANGE})"
+		RETURN_VAL=$CRITICAL
 	fi
 fi
 
@@ -224,4 +235,4 @@ PERFDATA="FAN${FAN_NUMBER}_RPM=${FAN_RPM};$WARNING_RPM_RANGE;$CRITICAL_RPM_RANGE
 
 echo "${STATUS} | ${PERFDATA}"
 
-exit $OK
+exit $RETURN_VAL
