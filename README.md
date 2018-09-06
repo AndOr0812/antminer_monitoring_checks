@@ -7,10 +7,10 @@ Usage:
 ```
 Check for Fan RPM Status of Antminer
 Warning and Critical are in Nagios Threshold Format. (10, 10:, 10:20, ~:20, @10:20 etc.)
-Usage: ./check_fan [-t] [-p api_port] [-f fan_number] [-h hostname] [-w warning_rpm_range] [-c critical_rpm_range]
+Usage: check_fan [-p api_port] [-n fan_number] [-H hostname] [-w warning_rpm_range] [-c critical_rpm_range]
 Command Summary:
   -c critical_threshold		Critical treshold (range) in RPM
-  -f fan_number			Specify Fan number
+  -n fan_number			Specify Fan number
   -H hostname			Antminer target
   -h				This help text
   -p api_port			Monitoring API Port (Default: 4028)
@@ -23,6 +23,28 @@ the current rpm lies outside of 1000 to 3500 rpm
 ```
 check_fan -H antminer.local -w 1000:3500 -f 1
 => OK - FAN1 2880 RPM | FAN1_RPM=2880;1000:3500;
+```
+## check_chain_status
+Usage:
+Checks the ASIC status of a chain.
+```
+Check for Chain Status of Antminer
+Usage: check_chain_status [-p api_port] [-n chain_number] [-H hostname]
+Command Summary:
+  -n chain_number		Specify Chain number
+  -H hostname			Antminer target
+  -h					This help text
+  -p api_port			Monitoring API Port (Default: 4028)
+```
+
+Specify the chain number as parameter
+
+```
+check_chain_status -H antminer.local -n 3
+
+=> OK - chain 3 status: oooo
+or maybe
+=> CRITICAL - chain 3 status: xxxx
 ```
 
 ## License Notice
